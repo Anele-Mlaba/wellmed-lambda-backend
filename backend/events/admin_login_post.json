@@ -1,0 +1,11 @@
+{
+  "version": "2.0",
+  "routeKey": "POST /api/admin/login",
+  "rawPath": "/api/admin/login",
+  "headers": { "content-type": "application/json" },
+  "requestContext": {
+    "http": { "method": "POST", "path": "/api/admin/login", "sourceIp": "127.0.0.1" }
+  },
+  "body": "{\"email\":\"doctor@wellmed.co.za\",\"password\":\"change-me\"}",
+  "isBase64Encoded": false
+}

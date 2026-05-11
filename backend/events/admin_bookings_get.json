@@ -1,0 +1,19 @@
+{
+  "version": "2.0",
+  "routeKey": "GET /api/admin/bookings",
+  "rawPath": "/api/admin/bookings",
+  "rawQueryString": "status=confirmed&from=2026-05-01&to=2026-05-31",
+  "headers": {
+    "content-type": "application/json",
+    "authorization": "Bearer REPLACE_WITH_JWT_FROM_LOGIN"
+  },
+  "queryStringParameters": {
+    "status": "confirmed",
+    "from": "2026-05-01",
+    "to": "2026-05-31"
+  },
+  "requestContext": {
+    "http": { "method": "GET", "path": "/api/admin/bookings", "sourceIp": "127.0.0.1" }
+  },
+  "isBase64Encoded": false
+}

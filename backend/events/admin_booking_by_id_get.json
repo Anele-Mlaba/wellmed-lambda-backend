@@ -1,0 +1,14 @@
+{
+  "version": "2.0",
+  "routeKey": "GET /api/admin/bookings/{id}",
+  "rawPath": "/api/admin/bookings/WM-1042",
+  "headers": {
+    "content-type": "application/json",
+    "authorization": "Bearer REPLACE_WITH_JWT_FROM_LOGIN"
+  },
+  "pathParameters": { "id": "WM-1042" },
+  "requestContext": {
+    "http": { "method": "GET", "path": "/api/admin/bookings/WM-1042", "sourceIp": "127.0.0.1" }
+  },
+  "isBase64Encoded": false
+}

@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -c 'import ast, pathlib, sys *)",
+      "Bash(py -c 'import ast, pathlib *)",
+      "Bash(py -m pip install --quiet pyyaml)",
+      "Bash(py -c ' *)"
+    ]
+  }
+}

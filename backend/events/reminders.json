@@ -1,0 +1,11 @@
+{
+  "version": "0",
+  "id": "schedule-invocation",
+  "detail-type": "Scheduled Event",
+  "source": "aws.scheduler",
+  "account": "000000000000",
+  "time": "2026-05-11T12:00:00Z",
+  "region": "eu-west-1",
+  "resources": ["arn:aws:scheduler:eu-west-1:000000000000:schedule/default/wellmed-reminders"],
+  "detail": {}
+}

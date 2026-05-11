@@ -1,0 +1,8 @@
+.aws-sam/
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+.env
+.env.*
+src/config/google-sa.json

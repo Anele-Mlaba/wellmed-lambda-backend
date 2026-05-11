@@ -1,0 +1,18 @@
+{
+  "version": "2.0",
+  "routeKey": "GET /api/admin/stats",
+  "rawPath": "/api/admin/stats",
+  "rawQueryString": "from=2026-04-11&to=2026-05-11",
+  "headers": {
+    "content-type": "application/json",
+    "authorization": "Bearer REPLACE_WITH_JWT_FROM_LOGIN"
+  },
+  "queryStringParameters": {
+    "from": "2026-04-11",
+    "to": "2026-05-11"
+  },
+  "requestContext": {
+    "http": { "method": "GET", "path": "/api/admin/stats", "sourceIp": "127.0.0.1" }
+  },
+  "isBase64Encoded": false
+}

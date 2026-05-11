@@ -1,0 +1,332 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+Description: WellMed booking + admin backend (DynamoDB single-table, HTTP API, SES, Google Calendar via service account).
+
+Parameters:
+  Stage:
+    Type: String
+    Default: prod
+    AllowedValues: [dev, staging, prod]
+
+Globals:
+  Function:
+    Runtime: python3.12
+    Timeout: 15
+    MemorySize: 512
+    Architectures: [x86_64]
+    Tracing: Active
+    Environment:
+      Variables:
+        STAGE: !Ref Stage
+        TABLE_NAME: !Sub "WellMed-${Stage}"
+        FRONT_END_ORIGIN: "https://wellmed.co.za"
+        PRACTICE_CALENDAR_ID: "bookings@wellmed.co.za"
+        GOOGLE_SA_PATH: "/var/task/src/config/google-sa.json"
+        JWT_SECRET: "replace-me-with-a-long-random-string"
+        JWT_EXPIRY_SECONDS: "3600"
+        SES_FROM_ADDRESS: "bookings@wellmed.co.za"
+        SES_TEMPLATE_CONFIRMATION: !Sub "WellMedBookingConfirmation-${Stage}"
+        SES_TEMPLATE_REMINDER: !Sub "WellMedBookingReminder-${Stage}"
+        PRACTICE_TIMEZONE: "Africa/Johannesburg"
+
+Resources:
+
+  # ---------------------------------------------------------------------------
+  # DynamoDB single table
+  # ---------------------------------------------------------------------------
+  WellMedTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub "WellMed-${Stage}"
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - { AttributeName: PK,     AttributeType: S }
+        - { AttributeName: SK,     AttributeType: S }
+        - { AttributeName: GSI1PK, AttributeType: S }
+        - { AttributeName: GSI1SK, AttributeType: S }
+        - { AttributeName: GSI2PK, AttributeType: S }
+        - { AttributeName: GSI2SK, AttributeType: S }
+        - { AttributeName: GSI3PK, AttributeType: S }
+        - { AttributeName: GSI3SK, AttributeType: S }
+      KeySchema:
+        - { AttributeName: PK, KeyType: HASH }
+        - { AttributeName: SK, KeyType: RANGE }
+      GlobalSecondaryIndexes:
+        - IndexName: GSI1
+          KeySchema:
+            - { AttributeName: GSI1PK, KeyType: HASH }
+            - { AttributeName: GSI1SK, KeyType: RANGE }
+          Projection: { ProjectionType: ALL }
+        - IndexName: GSI2
+          KeySchema:
+            - { AttributeName: GSI2PK, KeyType: HASH }
+            - { AttributeName: GSI2SK, KeyType: RANGE }
+          Projection: { ProjectionType: ALL }
+        - IndexName: GSI3
+          KeySchema:
+            - { AttributeName: GSI3PK, KeyType: HASH }
+            - { AttributeName: GSI3SK, KeyType: RANGE }
+          Projection: { ProjectionType: ALL }
+      TimeToLiveSpecification:
+        AttributeName: ttl
+        Enabled: true
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+
+  # ---------------------------------------------------------------------------
+  # HTTP API
+  # ---------------------------------------------------------------------------
+  WellMedHttpApi:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      StageName: !Ref Stage
+      CorsConfiguration:
+        AllowOrigins:
+          - "https://wellmed.co.za"
+        AllowHeaders:
+          - "content-type"
+          - "authorization"
+          - "idempotency-key"
+        AllowMethods:
+          - GET
+          - POST
+          - PATCH
+          - OPTIONS
+        MaxAge: 600
+
+  # ---------------------------------------------------------------------------
+  # Lambda functions
+  # ---------------------------------------------------------------------------
+  AvailabilityGetFn:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "wellmed-availability-get-${Stage}"
+      CodeUri: ./
+      Handler: src.handlers.availability_get.handler
+      Policies:
+        - DynamoDBReadPolicy: { TableName: !Ref WellMedTable }
+      Events:
+        Route:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref WellMedHttpApi
+            Method: GET
+            Path: /api/availability
+
+  BookingsPostFn:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "wellmed-bookings-post-${Stage}"
+      CodeUri: ./
+      Handler: src.handlers.bookings_post.handler
+      Timeout: 25
+      Policies:
+        - DynamoDBCrudPolicy: { TableName: !Ref WellMedTable }
+        - Statement:
+            - Effect: Allow
+              Action:
+                - ses:SendTemplatedEmail
+                - ses:SendEmail
+              Resource: "*"
+      Events:
+        Route:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref WellMedHttpApi
+            Method: POST
+            Path: /api/bookings
+
+  ContactPostFn:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "wellmed-contact-post-${Stage}"
+      CodeUri: ./
+      Handler: src.handlers.contact_post.handler
+      Policies:
+        - DynamoDBCrudPolicy: { TableName: !Ref WellMedTable }
+      Events:
+        Route:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref WellMedHttpApi
+            Method: POST
+            Path: /api/contact
+
+  AdminLoginPostFn:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "wellmed-admin-login-post-${Stage}"
+      CodeUri: ./
+      Handler: src.handlers.admin_login_post.handler
+      Policies:
+        - DynamoDBReadPolicy: { TableName: !Ref WellMedTable }
+      Events:
+        Route:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref WellMedHttpApi
+            Method: POST
+            Path: /api/admin/login
+
+  AdminBookingsGetFn:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "wellmed-admin-bookings-get-${Stage}"
+      CodeUri: ./
+      Handler: src.handlers.admin_bookings_get.handler
+      Policies:
+        - DynamoDBReadPolicy: { TableName: !Ref WellMedTable }
+      Events:
+        Route:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref WellMedHttpApi
+            Method: GET
+            Path: /api/admin/bookings
+
+  AdminBookingByIdGetFn:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "wellmed-admin-booking-get-${Stage}"
+      CodeUri: ./
+      Handler: src.handlers.admin_bookings_by_id_get.handler
+      Policies:
+        - DynamoDBReadPolicy: { TableName: !Ref WellMedTable }
+      Events:
+        Route:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref WellMedHttpApi
+            Method: GET
+            Path: /api/admin/bookings/{id}
+
+  AdminBookingByIdPatchFn:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "wellmed-admin-booking-patch-${Stage}"
+      CodeUri: ./
+      Handler: src.handlers.admin_bookings_by_id_patch.handler
+      Timeout: 25
+      Policies:
+        - DynamoDBCrudPolicy: { TableName: !Ref WellMedTable }
+      Events:
+        Route:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref WellMedHttpApi
+            Method: PATCH
+            Path: /api/admin/bookings/{id}
+
+  AdminStatsGetFn:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "wellmed-admin-stats-get-${Stage}"
+      CodeUri: ./
+      Handler: src.handlers.admin_stats_get.handler
+      Timeout: 25
+      Policies:
+        - DynamoDBReadPolicy: { TableName: !Ref WellMedTable }
+      Events:
+        Route:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref WellMedHttpApi
+            Method: GET
+            Path: /api/admin/stats
+
+  RemindersFn:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "wellmed-reminders-${Stage}"
+      CodeUri: ./
+      Handler: src.handlers.jobs_reminders.handler
+      Timeout: 60
+      Policies:
+        - DynamoDBCrudPolicy: { TableName: !Ref WellMedTable }
+        - Statement:
+            - Effect: Allow
+              Action:
+                - ses:SendTemplatedEmail
+                - ses:SendEmail
+              Resource: "*"
+      Events:
+        Schedule:
+          Type: ScheduleV2
+          Properties:
+            ScheduleExpression: "rate(30 minutes)"
+            Description: WellMed reminders sweep (~24h ahead of slot)
+
+  # ---------------------------------------------------------------------------
+  # SES templates
+  # ---------------------------------------------------------------------------
+  BookingConfirmationTemplate:
+    Type: AWS::SES::Template
+    Properties:
+      Template:
+        TemplateName: !Sub "WellMedBookingConfirmation-${Stage}"
+        SubjectPart: "WellMed booking confirmed — {{shortId}}"
+        TextPart: |
+          Hi {{firstName}},
+
+          Your WellMed booking is confirmed.
+
+          Reference: {{shortId}}
+          Service:   {{serviceTitle}}
+          When:      {{slotLocal}} (SAST)
+          Doctor:    Dr Moodley
+          Where:     WellMed, Umhlanga
+
+          Add to your calendar: {{calendarLink}}
+          Reschedule:           {{rescheduleUrl}}
+
+          See you soon,
+          The WellMed team
+        HtmlPart: |
+          <p>Hi {{firstName}},</p>
+          <p>Your WellMed booking is <strong>confirmed</strong>.</p>
+          <ul>
+            <li><strong>Reference:</strong> {{shortId}}</li>
+            <li><strong>Service:</strong> {{serviceTitle}}</li>
+            <li><strong>When:</strong> {{slotLocal}} (SAST)</li>
+            <li><strong>Doctor:</strong> Dr Moodley</li>
+            <li><strong>Where:</strong> WellMed, Umhlanga</li>
+          </ul>
+          <p><a href="{{calendarLink}}">Add to your calendar</a> &middot;
+             <a href="{{rescheduleUrl}}">Reschedule</a></p>
+          <p>See you soon,<br/>The WellMed team</p>
+
+  BookingReminderTemplate:
+    Type: AWS::SES::Template
+    Properties:
+      Template:
+        TemplateName: !Sub "WellMedBookingReminder-${Stage}"
+        SubjectPart: "Reminder: your WellMed visit tomorrow — {{shortId}}"
+        TextPart: |
+          Hi {{firstName}},
+
+          A quick reminder of your WellMed visit tomorrow.
+
+          Reference: {{shortId}}
+          Service:   {{serviceTitle}}
+          When:      {{slotLocal}} (SAST)
+          Where:     WellMed, Umhlanga
+
+          Need to reschedule? {{rescheduleUrl}}
+        HtmlPart: |
+          <p>Hi {{firstName}},</p>
+          <p>A quick reminder of your WellMed visit <strong>tomorrow</strong>.</p>
+          <ul>
+            <li><strong>Reference:</strong> {{shortId}}</li>
+            <li><strong>Service:</strong> {{serviceTitle}}</li>
+            <li><strong>When:</strong> {{slotLocal}} (SAST)</li>
+            <li><strong>Where:</strong> WellMed, Umhlanga</li>
+          </ul>
+          <p>Need to reschedule? <a href="{{rescheduleUrl}}">Click here</a>.</p>
+
+Outputs:
+  ApiUrl:
+    Description: Base URL of the WellMed HTTP API
+    Value: !Sub "https://${WellMedHttpApi}.execute-api.${AWS::Region}.amazonaws.com"
+  TableName:
+    Description: DynamoDB table name
+    Value: !Ref WellMedTable

@@ -1,0 +1,14 @@
+{
+  "version": "2.0",
+  "routeKey": "POST /api/bookings",
+  "rawPath": "/api/bookings",
+  "headers": {
+    "content-type": "application/json",
+    "idempotency-key": "demo-key-001"
+  },
+  "requestContext": {
+    "http": { "method": "POST", "path": "/api/bookings", "sourceIp": "127.0.0.1" }
+  },
+  "body": "{\"service\":\"iv-therapy\",\"requestedSlot\":\"2026-05-12T07:30:00Z\",\"personal\":{\"firstName\":\"Nadia\",\"lastName\":\"Pillay\",\"idOrPassport\":\"8501010000080\",\"phone\":\"+27821234567\",\"email\":\"nadia@example.co.za\",\"emergencyContact\":{\"name\":\"John Pillay\",\"phone\":\"+27827654321\"},\"medicalAid\":{\"provider\":\"Discovery\",\"memberNumber\":\"1234567890\",\"mainMember\":\"Nadia Pillay\",\"dependentCode\":\"00\"}},\"medical\":{\"existingConditions\":\"Hypothyroidism\",\"allergies\":\"Penicillin\",\"currentMeds\":\"Eltroxin 100mcg daily\",\"reasonForVisit\":\"Energy IV before a busy work week\",\"notes\":\"\",\"marketingOptIn\":true},\"consent\":true,\"submittedAt\":\"2026-05-11T12:00:00Z\"}",
+  "isBase64Encoded": false
+}

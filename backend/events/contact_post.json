@@ -1,0 +1,11 @@
+{
+  "version": "2.0",
+  "routeKey": "POST /api/contact",
+  "rawPath": "/api/contact",
+  "headers": { "content-type": "application/json" },
+  "requestContext": {
+    "http": { "method": "POST", "path": "/api/contact", "sourceIp": "127.0.0.1" }
+  },
+  "body": "{\"name\":\"Sam Visitor\",\"email\":\"sam@example.co.za\",\"phone\":\"+27821112233\",\"topic\":\"General enquiry\",\"message\":\"Do you accept Discovery Health?\",\"ts\":\"2026-05-11T10:00:00Z\"}",
+  "isBase64Encoded": false
+}

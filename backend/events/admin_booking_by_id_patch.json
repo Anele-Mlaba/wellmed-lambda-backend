@@ -1,0 +1,15 @@
+{
+  "version": "2.0",
+  "routeKey": "PATCH /api/admin/bookings/{id}",
+  "rawPath": "/api/admin/bookings/WM-1042",
+  "headers": {
+    "content-type": "application/json",
+    "authorization": "Bearer REPLACE_WITH_JWT_FROM_LOGIN"
+  },
+  "pathParameters": { "id": "WM-1042" },
+  "requestContext": {
+    "http": { "method": "PATCH", "path": "/api/admin/bookings/WM-1042", "sourceIp": "127.0.0.1" }
+  },
+  "body": "{\"newSlot\":\"2026-05-15T08:00:00Z\",\"notifyPatient\":true}",
+  "isBase64Encoded": false
+}

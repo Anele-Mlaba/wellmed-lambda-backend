@@ -1,0 +1,15 @@
+{
+  "version": "2.0",
+  "routeKey": "GET /api/availability",
+  "rawPath": "/api/availability",
+  "rawQueryString": "service=iv-therapy&date=2026-05-12",
+  "headers": { "content-type": "application/json" },
+  "queryStringParameters": {
+    "service": "iv-therapy",
+    "date": "2026-05-12"
+  },
+  "requestContext": {
+    "http": { "method": "GET", "path": "/api/availability", "sourceIp": "127.0.0.1" }
+  },
+  "isBase64Encoded": false
+}
