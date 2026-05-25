@@ -11,9 +11,11 @@ from __future__ import annotations
 import os
 import sys
 
+from src.lib import dynamo
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-from src.lib import dynamo, passwords  # noqa: E402
+from src.lib import passwords  # noqa: E402
 from src.lib.ids import new_admin_user_id  # noqa: E402
 from src.lib.time_util import now_iso  # noqa: E402
 

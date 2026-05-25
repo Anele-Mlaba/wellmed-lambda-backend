@@ -2,6 +2,7 @@ version = 0.1
 
 [default.global.parameters]
 stack_name = "wellmed-backend"
+region = "eu-west-1"
 
 [default.build.parameters]
 cached = true
@@ -9,9 +10,11 @@ parallel = true
 use_container = false
 
 [default.deploy.parameters]
-region = "eu-west-1"
 capabilities = "CAPABILITY_IAM"
 confirm_changeset = true
 resolve_s3 = true
 fail_on_empty_changeset = false
-parameter_overrides = "Stage=prod"
+parameter_overrides = "Stage=\"prod\""
+stack_name = "wellmed-backend-lambda"
+s3_prefix = "wellmed-backend-lambda"
+image_repositories = []

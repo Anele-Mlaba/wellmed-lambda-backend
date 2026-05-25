@@ -3,16 +3,17 @@
 from __future__ import annotations
 
 import json
-import logging
 import time
 from typing import Any
 
 from botocore.exceptions import ClientError
 from pydantic import ValidationError
+from ..lib import dynamo, google_calendar
 
-from ..lib import dynamo, google_calendar, ses
+from ..lib import ses
 from ..lib.http import bad_request, conflict, parse_body, respond, server_error
 from ..lib.ids import allocate_short_id, new_booking_id, new_patient_id
+from ..lib.log_util import bind
 from ..lib.time_util import (
     format_sast,
     is_future,
@@ -30,31 +31,36 @@ from ..lib.validate import (
     collect_error_fields,
 )
 
-_LOG = logging.getLogger(__name__)
 _IDEMPOTENCY_TTL_SECONDS = 24 * 60 * 60
 
 
 def handler(event: dict[str, Any], _context) -> dict[str, Any]:
+    log = bind(__name__, event)
     headers = event.get("headers") or {}
     idem_key = headers.get("idempotency-key") or headers.get("Idempotency-Key")
+    log.info("event=request_received idempotencyKey=%s", idem_key or "<none>")
 
     if idem_key:
         prior = dynamo.get_idempotency(idem_key)
         if prior and prior.get("response"):
             try:
+                log.info("event=idempotency_replay idempotencyKey=%s", idem_key)
                 return respond(201, json.loads(prior["response"]))
             except json.JSONDecodeError:
-                pass
+                log.warning("event=idempotency_replay_corrupt idempotencyKey=%s", idem_key)
 
     try:
         body = parse_body(event)
     except Exception:
+        log.warning("event=invalid_json")
         return bad_request(message="invalid json")
 
     try:
         req = BookingRequest.model_validate(body)
     except ValidationError as e:
-        return bad_request(fields=collect_error_fields(e))
+        fields = collect_error_fields(e)
+        log.warning("event=validation_failed fields=%s", fields)
+        return bad_request(fields=fields)
 
     fields: list[str] = []
     if req.service not in SERVICES:
@@ -69,18 +75,22 @@ def handler(event: dict[str, Any], _context) -> dict[str, Any]:
         slot_start_utc = None
 
     if fields:
+        log.warning("event=validation_failed fields=%s requestedSlot=%s", fields, req.requestedSlot)
         return bad_request(fields=fields)
 
     cfg = dynamo.get_service_config(req.service)
     if not cfg:
+        log.warning("event=service_not_configured service=%s", req.service)
         return bad_request(message="service_not_configured")
 
     duration = int(cfg.get("durationMinutes", 30))
     business_hours = (cfg.get("businessHours") or {}).get(weekday_key(slot_start_utc))
     if not business_hours:
+        log.warning("event=closed_on_that_day service=%s slot=%s", req.service, req.requestedSlot)
         return bad_request(fields=["requestedSlot"], message="closed_on_that_day")
 
     if not is_future(slot_start_utc):
+        log.warning("event=slot_in_past service=%s slot=%s", req.service, req.requestedSlot)
         return bad_request(fields=["requestedSlot"], message="slot_in_past")
 
     slot_start_iso = iso(slot_start_utc)
@@ -94,6 +104,7 @@ def handler(event: dict[str, Any], _context) -> dict[str, Any]:
 
     if existing_patient:
         patient_id = existing_patient["patientId"]
+        log.info("event=patient_matched patientId=%s email=%s", patient_id, email_lc)
         patient_item = {
             **existing_patient,
             "firstName": req.personal.firstName,
@@ -108,6 +119,7 @@ def handler(event: dict[str, Any], _context) -> dict[str, Any]:
         }
     else:
         patient_id = new_patient_id()
+        log.info("event=patient_created patientId=%s email=%s", patient_id, email_lc)
         patient_item = {
             "PK": f"PATIENT#{patient_id}",
             "SK": "PROFILE",
@@ -129,7 +141,11 @@ def handler(event: dict[str, Any], _context) -> dict[str, Any]:
             "updatedAt": now,
         }
 
-    dynamo.put_patient(patient_item)
+    try:
+        dynamo.put_patient(patient_item)
+    except Exception:
+        log.exception("event=patient_persist_failed patientId=%s email=%s", patient_id, email_lc)
+        return server_error("booking_failed")
 
     # 2. Allocate short ID
     short_id = allocate_short_id()
@@ -179,9 +195,21 @@ def handler(event: dict[str, Any], _context) -> dict[str, Any]:
     except ClientError as exc:
         code = exc.response.get("Error", {}).get("Code", "")
         if code in ("TransactionCanceledException", "ConditionalCheckFailedException"):
+            log.warning(
+                "event=slot_conflict service=%s slot=%s shortId=%s code=%s",
+                req.service, slot_start_iso, short_id, code,
+            )
             return conflict("slot_unavailable")
-        _LOG.exception("booking transact_write_items failed")
+        log.exception(
+            "event=slot_persist_failed service=%s slot=%s bookingId=%s code=%s",
+            req.service, slot_start_iso, booking_id, code,
+        )
         return server_error("booking_failed")
+
+    log.info(
+        "event=booking_reserved bookingId=%s shortId=%s patientId=%s service=%s slot=%s",
+        booking_id, short_id, patient_id, req.service, slot_start_iso,
+    )
 
     # 4. Google Calendar
     service_title = SERVICE_TITLES.get(req.service, req.service)
@@ -199,22 +227,34 @@ def handler(event: dict[str, Any], _context) -> dict[str, Any]:
             patient_name=f"{req.personal.firstName} {req.personal.lastName}",
         )
     except Exception:
-        _LOG.exception("google calendar insert failed — booking left at pending")
+        log.exception(
+            "event=calendar_insert_failed bookingId=%s shortId=%s slot=%s — booking left pending",
+            booking_id, short_id, slot_start_iso,
+        )
         # Booking row stays at status=pending. Manual cleanup from admin dashboard.
         return server_error("calendar_unavailable")
 
+    log.info("event=calendar_event_created bookingId=%s googleEventId=%s", booking_id, google_event_id)
+
     # 5. Confirm booking
     confirmed_at = now_iso()
-    dynamo.update_booking(
-        booking_id,
-        {
-            "status": "confirmed",
-            "GSI2PK": "STATUS#confirmed",
-            "googleEventId": google_event_id,
-            "confirmationSentAt": confirmed_at,
-            "updatedAt": confirmed_at,
-        },
-    )
+    try:
+        dynamo.update_booking(
+            booking_id,
+            {
+                "status": "confirmed",
+                "GSI2PK": "STATUS#confirmed",
+                "googleEventId": google_event_id,
+                "confirmationSentAt": confirmed_at,
+                "updatedAt": confirmed_at,
+            },
+        )
+    except Exception:
+        log.exception(
+            "event=booking_confirm_failed bookingId=%s shortId=%s googleEventId=%s",
+            booking_id, short_id, google_event_id,
+        )
+        return server_error("booking_failed")
 
     # 6. Email (fail-soft)
     confirmation_sent = ses.send_booking_confirmation(
@@ -228,6 +268,11 @@ def handler(event: dict[str, Any], _context) -> dict[str, Any]:
             "rescheduleUrl": "https://wellmed.co.za/pages/contact.html",
         },
     )
+    if not confirmation_sent:
+        log.warning(
+            "event=confirmation_email_failed bookingId=%s shortId=%s email=%s",
+            booking_id, short_id, email_lc,
+        )
 
     response_body = {
         "id": short_id,
@@ -241,6 +286,10 @@ def handler(event: dict[str, Any], _context) -> dict[str, Any]:
         try:
             dynamo.put_idempotency(idem_key, json.dumps(response_body), int(time.time()) + _IDEMPOTENCY_TTL_SECONDS)
         except Exception:
-            _LOG.exception("idempotency persist failed (non-fatal)")
+            log.exception("event=idempotency_persist_failed idempotencyKey=%s", idem_key)
 
+    log.info(
+        "event=booking_confirmed bookingId=%s shortId=%s service=%s slot=%s emailSent=%s",
+        booking_id, short_id, req.service, slot_start_iso, confirmation_sent,
+    )
     return respond(201, response_body)

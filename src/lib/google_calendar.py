@@ -48,7 +48,6 @@ def create_event(
         "description": description,
         "start": {"dateTime": slot_start_local_iso, "timeZone": _TIMEZONE},
         "end": {"dateTime": slot_end_local_iso, "timeZone": _TIMEZONE},
-        "attendees": [{"email": patient_email, "displayName": patient_name}],
         "reminders": {
             "useDefault": False,
             "overrides": [

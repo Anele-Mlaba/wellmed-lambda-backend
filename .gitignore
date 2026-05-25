@@ -6,3 +6,4 @@ __pycache__/
 .env
 .env.*
 src/config/google-sa.json
+.claude/

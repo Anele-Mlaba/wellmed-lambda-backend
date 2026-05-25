@@ -4,8 +4,11 @@ from __future__ import annotations
 
 from typing import Any
 
-from ..lib import dynamo, jwt_util
+from ..lib import dynamo
+
+from ..lib import jwt_util
 from ..lib.http import not_found, ok, unauthorized
+from ..lib.log_util import bind
 
 
 def _resolve_booking(identifier: str) -> dict[str, Any] | None:
@@ -15,16 +18,22 @@ def _resolve_booking(identifier: str) -> dict[str, Any] | None:
 
 
 def handler(event: dict[str, Any], _context) -> dict[str, Any]:
-    if jwt_util.require_admin(event) is None:
+    log = bind(__name__, event)
+    claims = jwt_util.require_admin(event)
+    if claims is None:
+        log.warning("event=auth_failed reason=missing_or_invalid_jwt")
         return unauthorized()
 
     path = event.get("pathParameters") or {}
     identifier = path.get("id", "")
+    log.info("event=request_received userId=%s identifier=%s", claims.get("sub"), identifier or "<missing>")
     if not identifier:
+        log.warning("event=not_found reason=missing_identifier")
         return not_found()
 
     booking = _resolve_booking(identifier)
     if not booking:
+        log.warning("event=not_found identifier=%s", identifier)
         return not_found()
 
     patient = dynamo.get_patient_by_id(booking.get("patientId", "")) if booking.get("patientId") else None
@@ -55,4 +64,8 @@ def handler(event: dict[str, Any], _context) -> dict[str, Any]:
             "marketingOptIn": patient.get("marketingOptIn", False),
         },
     }
+    log.info(
+        "event=request_ok bookingId=%s shortId=%s status=%s patientId=%s",
+        booking.get("bookingId"), booking.get("shortId"), booking.get("status"), booking.get("patientId"),
+    )
     return ok(payload)

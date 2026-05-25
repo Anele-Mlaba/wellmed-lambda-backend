@@ -2,17 +2,16 @@
 
 from __future__ import annotations
 
-import logging
 from datetime import datetime, time, timezone
 from typing import Any
 
 from boto3.dynamodb.conditions import Attr, Key
+from ..lib import dynamo
 
-from ..lib import dynamo, jwt_util
+from ..lib import jwt_util
 from ..lib.http import ok, unauthorized
+from ..lib.log_util import bind
 from ..lib.time_util import age_band_from_id, gender_from_id
-
-_LOG = logging.getLogger(__name__)
 
 
 _STATUSES = ("pending", "confirmed", "completed", "noshow", "cancelled")
@@ -28,7 +27,10 @@ def _date_to_utc_iso(date_str: str, end_of_day: bool = False) -> str:
 
 
 def handler(event: dict[str, Any], _context) -> dict[str, Any]:
-    if jwt_util.require_admin(event) is None:
+    log = bind(__name__, event)
+    claims = jwt_util.require_admin(event)
+    if claims is None:
+        log.warning("event=auth_failed reason=missing_or_invalid_jwt")
         return unauthorized()
 
     qs = event.get("queryStringParameters") or {}
@@ -37,6 +39,11 @@ def handler(event: dict[str, Any], _context) -> dict[str, Any]:
     date_from = qs.get("from")
     date_to = qs.get("to")
     q = (qs.get("q") or "").strip().lower()
+    log.info(
+        "event=request_received userId=%s status=%s service=%s from=%s to=%s q=%s",
+        claims.get("sub"), qs.get("status") or "<any>", service or "<any>",
+        date_from or "<any>", date_to or "<any>", q or "<none>",
+    )
 
     slot_from = _date_to_utc_iso(date_from) if date_from else "0000-01-01T00:00:00Z"
     slot_to = _date_to_utc_iso(date_to, end_of_day=True) if date_to else "9999-12-31T23:59:59Z"
@@ -92,4 +99,8 @@ def handler(event: dict[str, Any], _context) -> dict[str, Any]:
         )
 
     rows.sort(key=lambda r: r.get("slot") or "")
+    log.info(
+        "event=request_ok scanned=%d returned=%d uniquePatients=%d",
+        len(bookings), len(rows), len(patient_cache),
+    )
     return ok(rows)

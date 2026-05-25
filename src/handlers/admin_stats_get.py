@@ -2,18 +2,17 @@
 
 from __future__ import annotations
 
-import logging
 from collections import Counter
 from datetime import datetime, time, timedelta, timezone
 from typing import Any
 
 from boto3.dynamodb.conditions import Key
+from ..lib import dynamo
 
-from ..lib import dynamo, jwt_util
+from ..lib import jwt_util
 from ..lib.http import ok, unauthorized
+from ..lib.log_util import bind
 from ..lib.time_util import age_band_from_id, gender_from_id, now_utc
-
-_LOG = logging.getLogger(__name__)
 
 _STATUSES = ("pending", "confirmed", "completed", "noshow", "cancelled")
 _AGE_BANDS = ("0-17", "18-24", "25-34", "35-44", "45-54", "55+")
@@ -30,7 +29,10 @@ def _parse_date(value: str | None, default: datetime) -> datetime:
 
 
 def handler(event: dict[str, Any], _context) -> dict[str, Any]:
-    if jwt_util.require_admin(event) is None:
+    log = bind(__name__, event)
+    claims = jwt_util.require_admin(event)
+    if claims is None:
+        log.warning("event=auth_failed reason=missing_or_invalid_jwt")
         return unauthorized()
 
     qs = event.get("queryStringParameters") or {}
@@ -38,6 +40,10 @@ def handler(event: dict[str, Any], _context) -> dict[str, Any]:
     default_from = now - timedelta(days=30)
     date_from = _parse_date(qs.get("from"), default_from)
     date_to = _parse_date(qs.get("to"), now)
+    log.info(
+        "event=request_received userId=%s from=%s to=%s",
+        claims.get("sub"), date_from.date().isoformat(), date_to.date().isoformat(),
+    )
 
     slot_from_iso = date_from.replace(hour=0, minute=0, second=0, microsecond=0).isoformat().replace("+00:00", "Z")
     slot_to_iso = datetime.combine(date_to.date(), time(23, 59, 59), tzinfo=timezone.utc).isoformat().replace("+00:00", "Z")
@@ -85,6 +91,11 @@ def handler(event: dict[str, Any], _context) -> dict[str, Any]:
             g = "Other"
         gender[g] += 1
 
+    log.info(
+        "event=request_ok scanned=%d uniquePatients=%d upcoming=%d confirmed=%d cancelled=%d",
+        len(bookings), len(patient_cache),
+        totals.get("upcoming", 0), totals.get("confirmed", 0), totals.get("cancelled", 0),
+    )
     return ok(
         {
             "totals": {
