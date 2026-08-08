@@ -72,6 +72,7 @@ def handler(event: dict[str, Any], _context) -> dict[str, Any]:
             log.error("event=service_not_configured bookingId=%s service=%s", booking_id, booking["service"])
             return server_error("service_not_configured")
         duration = int(cfg.get("durationMinutes", 30))
+        capacity = int(cfg.get("concurrentCapacity") or 1)
         business_hours = (cfg.get("businessHours") or {}).get(weekday_key(new_start))
         if not business_hours:
             log.warning("event=closed_on_that_day bookingId=%s newSlot=%s", booking_id, patch.newSlot)
@@ -87,34 +88,9 @@ def handler(event: dict[str, Any], _context) -> dict[str, Any]:
                 "event=reschedule_move_lock bookingId=%s service=%s from=%s to=%s",
                 booking_id, booking["service"], old_slot_iso, new_start_iso,
             )
-            # Move the slot lock atomically: delete old, write new with condition.
+            # Move one seat atomically: free the old slot, take the new (capacity-checked).
             try:
-                dynamo.client().transact_write_items(
-                    TransactItems=[
-                        {
-                            "Delete": {
-                                "TableName": dynamo.get_table_name(),
-                                "Key": {
-                                    "PK": {"S": f"SLOTLOCK#{booking['service']}#{old_slot_iso}"},
-                                    "SK": {"S": "LOCK"},
-                                },
-                            }
-                        },
-                        {
-                            "Put": {
-                                "TableName": dynamo.get_table_name(),
-                                "Item": {
-                                    "PK": {"S": f"SLOTLOCK#{booking['service']}#{new_start_iso}"},
-                                    "SK": {"S": "LOCK"},
-                                    "type": {"S": "slot_lock"},
-                                    "bookingId": {"S": booking_id},
-                                    "createdAt": {"S": now_iso()},
-                                },
-                                "ConditionExpression": "attribute_not_exists(PK)",
-                            }
-                        },
-                    ]
-                )
+                dynamo.move_slot(booking["service"], old_slot_iso, new_start_iso, capacity, now_iso())
             except ClientError as exc:
                 code = exc.response.get("Error", {}).get("Code", "")
                 if code in ("TransactionCanceledException", "ConditionalCheckFailedException"):
@@ -159,16 +135,16 @@ def handler(event: dict[str, Any], _context) -> dict[str, Any]:
         )
         updates["status"] = patch.status
         updates["GSI2PK"] = f"STATUS#{patch.status}"
-        if patch.status == "cancelled":
+        if patch.status == "cancelled" and booking.get("status") != "cancelled":
             updates["cancelledAt"] = now_iso()
             if patch.cancelReason:
                 updates["cancelReason"] = patch.cancelReason
-            # Free the slot lock.
+            # Free one seat on the slot.
             try:
-                dynamo.delete_slotlock(booking["service"], booking["slotStart"])
+                dynamo.release_slot(booking["service"], booking["slotStart"])
             except Exception:
                 log.exception(
-                    "event=cancel_slot_lock_delete_failed bookingId=%s slot=%s",
+                    "event=cancel_slot_release_failed bookingId=%s slot=%s",
                     booking_id, booking["slotStart"],
                 )
             if booking.get("googleEventId"):

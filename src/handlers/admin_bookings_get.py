@@ -11,7 +11,7 @@ from ..lib import dynamo
 from ..lib import jwt_util
 from ..lib.http import ok, unauthorized
 from ..lib.log_util import bind
-from ..lib.time_util import age_band_from_id, gender_from_id
+from ..lib.time_util import age_band_from_dob, age_band_from_id, gender_from_id
 
 
 _STATUSES = ("pending", "confirmed", "completed", "noshow", "cancelled")
@@ -82,6 +82,12 @@ def handler(event: dict[str, Any], _context) -> dict[str, Any]:
 
         id_or_passport = patient.get("idOrPassport", "")
         medical_aid = (patient.get("medicalAid") or {}).get("provider") or ""
+        age_band = (
+            b.get("ageBand")
+            or age_band_from_dob(patient.get("dob"))
+            or age_band_from_id(id_or_passport)
+            or ""
+        )
 
         rows.append(
             {
@@ -92,9 +98,10 @@ def handler(event: dict[str, Any], _context) -> dict[str, Any]:
                 "slot": b.get("slotStart"),
                 "status": b.get("status"),
                 "source": b.get("source", "online"),
-                "ageBand": age_band_from_id(id_or_passport) or "",
+                "ageBand": age_band,
                 "gender": gender_from_id(id_or_passport) or "",
                 "medicalAid": medical_aid,
+                "pricing": b.get("pricing"),
             }
         )
 

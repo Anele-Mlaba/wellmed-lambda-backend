@@ -15,6 +15,7 @@ from ..lib.http import bad_request, conflict, parse_body, respond, server_error
 from ..lib.ids import allocate_short_id, new_booking_id, new_patient_id
 from ..lib.log_util import bind
 from ..lib.time_util import (
+    age_band_from_dob,
     format_sast,
     is_future,
     iso,
@@ -28,6 +29,7 @@ from ..lib.validate import (
     SERVICE_TITLES,
     SERVICES,
     BookingRequest,
+    Medical,
     collect_error_fields,
 )
 
@@ -83,7 +85,40 @@ def handler(event: dict[str, Any], _context) -> dict[str, Any]:
         log.warning("event=service_not_configured service=%s", req.service)
         return bad_request(message="service_not_configured")
 
+    medical = req.medical if req.medical is not None else Medical()
+
+    # Resolve the selected price option server-side — the client only sends ids.
+    pricing_record = None
+    if req.pricing:
+        catalog = dynamo.get_pricing_catalog()
+        found = dynamo.find_pricing_item(catalog, req.pricing.itemId)
+        if not found or found[1].get("price") is None:
+            log.warning("event=validation_failed field=pricing.itemId value=%s", req.pricing.itemId)
+            return bad_request(fields=["pricing.itemId"], message="unknown_pricing_item")
+        category, item = found
+        extras_by_id = {e.get("id"): e for e in (item.get("extras") or [])}
+        chosen_extras = []
+        for extra_id in req.pricing.extras:
+            extra = extras_by_id.get(extra_id)
+            if not extra:
+                log.warning("event=validation_failed field=pricing.extras value=%s", extra_id)
+                return bad_request(fields=["pricing.extras"], message="unknown_pricing_extra")
+            chosen_extras.append(
+                {"id": extra["id"], "name": extra.get("name") or extra["id"], "price": int(extra.get("price") or 0)}
+            )
+        base_price = int(item["price"])
+        pricing_record = {
+            "itemId": item["id"],
+            "itemName": item.get("name") or item["id"],
+            "categoryId": category.get("id"),
+            "basePrice": base_price,
+            "extras": chosen_extras,
+            "total": base_price + sum(e["price"] for e in chosen_extras),
+            "currency": "ZAR",
+        }
+
     duration = int(cfg.get("durationMinutes", 30))
+    capacity = int(cfg.get("concurrentCapacity") or 1)
     business_hours = (cfg.get("businessHours") or {}).get(weekday_key(slot_start_utc))
     if not business_hours:
         log.warning("event=closed_on_that_day service=%s slot=%s", req.service, req.requestedSlot)
@@ -110,11 +145,9 @@ def handler(event: dict[str, Any], _context) -> dict[str, Any]:
             "firstName": req.personal.firstName,
             "lastName": req.personal.lastName,
             "phone": req.personal.phone,
-            "emergencyName": req.personal.emergencyContact.name,
-            "emergencyPhone": req.personal.emergencyContact.phone,
-            "idOrPassport": req.personal.idOrPassport,
+            "dob": req.personal.dob or existing_patient.get("dob"),
             "medicalAid": req.personal.medicalAid.model_dump() if req.personal.medicalAid else None,
-            "marketingOptIn": bool(req.medical.marketingOptIn),
+            "marketingOptIn": bool(medical.marketingOptIn),
             "updatedAt": now,
         }
     else:
@@ -129,13 +162,11 @@ def handler(event: dict[str, Any], _context) -> dict[str, Any]:
             "patientId": patient_id,
             "firstName": req.personal.firstName,
             "lastName": req.personal.lastName,
-            "idOrPassport": req.personal.idOrPassport,
+            "dob": req.personal.dob,
             "phone": req.personal.phone,
             "email": email_lc,
-            "emergencyName": req.personal.emergencyContact.name,
-            "emergencyPhone": req.personal.emergencyContact.phone,
             "medicalAid": req.personal.medicalAid.model_dump() if req.personal.medicalAid else None,
-            "marketingOptIn": bool(req.medical.marketingOptIn),
+            "marketingOptIn": bool(medical.marketingOptIn),
             "popiaConsentAt": now,
             "createdAt": now,
             "updatedAt": now,
@@ -170,28 +201,22 @@ def handler(event: dict[str, Any], _context) -> dict[str, Any]:
         "status": "pending",
         "source": "online",
         "googleEventId": None,
+        "pricing": pricing_record,
+        "ageBand": age_band_from_dob(req.personal.dob),
         "intake": {
-            "existingConditions": req.medical.existingConditions or "",
-            "allergies": req.medical.allergies or "",
-            "currentMeds": req.medical.currentMeds or "",
-            "reasonForVisit": req.medical.reasonForVisit or "",
-            "notes": req.medical.notes or "",
+            "existingConditions": medical.existingConditions or "",
+            "allergies": medical.allergies or "",
+            "currentMeds": medical.currentMeds or "",
+            "reasonForVisit": medical.reasonForVisit or "",
+            "notes": medical.notes or "",
         },
         "createdAt": now,
         "updatedAt": now,
     }
 
-    slot_lock_item = {
-        "PK": f"SLOTLOCK#{req.service}#{slot_start_iso}",
-        "SK": "LOCK",
-        "type": "slot_lock",
-        "bookingId": booking_id,
-        "createdAt": now,
-    }
-
-    # 3. Transactional write — slot uniqueness via ConditionExpression
+    # 3. Transactional write — slot capacity enforced via ConditionExpression
     try:
-        dynamo.write_slotlock_and_booking(slot_lock_item, booking_item)
+        dynamo.acquire_slot_and_write_booking(req.service, slot_start_iso, capacity, booking_item, now)
     except ClientError as exc:
         code = exc.response.get("Error", {}).get("Code", "")
         if code in ("TransactionCanceledException", "ConditionalCheckFailedException"):
@@ -217,10 +242,18 @@ def handler(event: dict[str, Any], _context) -> dict[str, Any]:
     slot_start_local_iso = to_sast(slot_start_utc).isoformat(timespec="seconds")
     slot_end_local_iso = to_sast(slot_end_utc).isoformat(timespec="seconds")
 
+    description = google_calendar.render_event_description(booking_item["intake"])
+    if pricing_record:
+        extras_txt = "".join(f"\n  + {e['name']} (R{e['price']})" for e in pricing_record["extras"])
+        description = (
+            f"Selected: {pricing_record['itemName']} — R{pricing_record['basePrice']}{extras_txt}\n"
+            f"Total: R{pricing_record['total']}\n\n{description}"
+        )
+
     try:
         google_event_id = google_calendar.create_event(
             summary=summary,
-            description=google_calendar.render_event_description(booking_item["intake"]),
+            description=description,
             slot_start_local_iso=slot_start_local_iso,
             slot_end_local_iso=slot_end_local_iso,
             patient_email=email_lc,
@@ -280,6 +313,7 @@ def handler(event: dict[str, Any], _context) -> dict[str, Any]:
         "calendarEventId": google_event_id,
         "patientCalendarInviteSent": True,
         "confirmationEmailSent": confirmation_sent,
+        "pricing": pricing_record,
     }
 
     if idem_key:

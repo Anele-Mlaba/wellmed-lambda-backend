@@ -13,17 +13,18 @@ _EXPIRY = int(os.environ.get("JWT_EXPIRY_SECONDS", "3600"))
 _ALG = "HS256"
 
 
-def issue(user_id: str, role: str) -> tuple[str, int]:
-    """Sign a token for an admin user. Returns (token, expiresIn)."""
+def issue(user_id: str, role: str, expiry_seconds: int | None = None) -> tuple[str, int]:
+    """Sign a token. Returns (token, expiresIn)."""
+    expiry = _EXPIRY if expiry_seconds is None else expiry_seconds
     now = int(time.time())
     payload = {
         "sub": user_id,
         "role": role,
         "iat": now,
-        "exp": now + _EXPIRY,
+        "exp": now + expiry,
     }
     token = jwt.encode(payload, _SECRET, algorithm=_ALG)
-    return token, _EXPIRY
+    return token, expiry
 
 
 def verify(token: str) -> dict[str, Any]:
@@ -43,7 +44,26 @@ def extract_bearer(event: dict[str, Any]) -> str | None:
 
 
 def require_admin(event: dict[str, Any]) -> dict[str, Any] | None:
-    """Returns the decoded JWT payload or None when unauthorised."""
+    """Returns the decoded JWT payload or None when unauthorised.
+
+    Patient tokens share the signing secret, so the role claim is what keeps
+    them out of the admin API.
+    """
+    claims = _decode_bearer(event)
+    if claims is None or claims.get("role") == "patient":
+        return None
+    return claims
+
+
+def require_patient(event: dict[str, Any]) -> dict[str, Any] | None:
+    """Returns the decoded JWT payload for a patient token, else None."""
+    claims = _decode_bearer(event)
+    if claims is None or claims.get("role") != "patient":
+        return None
+    return claims
+
+
+def _decode_bearer(event: dict[str, Any]) -> dict[str, Any] | None:
     token = extract_bearer(event)
     if not token:
         return None

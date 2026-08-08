@@ -102,6 +102,35 @@ def label_sast(dt: datetime) -> str:
     return to_sast(dt).strftime("%H:%M")
 
 
+def _age_to_band(age: int) -> str | None:
+    if age < 0 or age > 120:
+        return None
+    if age < 18:
+        return "0-17"
+    if age < 25:
+        return "18-24"
+    if age < 35:
+        return "25-34"
+    if age < 45:
+        return "35-44"
+    if age < 55:
+        return "45-54"
+    return "55+"
+
+
+def age_band_from_dob(dob_str: str | None) -> str | None:
+    """YYYY-MM-DD date of birth → coarse age band, or None."""
+    if not dob_str:
+        return None
+    try:
+        dob = datetime.strptime(dob_str, "%Y-%m-%d").date()
+    except ValueError:
+        return None
+    today = datetime.now(SAST).date()
+    age = today.year - dob.year - ((today.month, today.day) < (dob.month, dob.day))
+    return _age_to_band(age)
+
+
 def age_band_from_id(id_or_passport: str) -> str | None:
     """South-African ID first 6 digits encode YYMMDD. Returns coarse age band, or None."""
     digits = "".join(ch for ch in id_or_passport if ch.isdigit())

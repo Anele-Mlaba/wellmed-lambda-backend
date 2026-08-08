@@ -42,6 +42,7 @@ def handler(event: dict[str, Any], _context) -> dict[str, Any]:
     try:
         duration = int(cfg.get("durationMinutes", 30))
         buffer_min = int(cfg.get("bufferMinutes", 0))
+        capacity = int(cfg.get("concurrentCapacity") or 1)
         hours_map = cfg.get("businessHours") or {}
         probe = datetime(int(date_str[0:4]), int(date_str[5:7]), int(date_str[8:10]), 12, 0, tzinfo=SAST)
         window = hours_map.get(weekday_key(probe))
@@ -55,18 +56,24 @@ def handler(event: dict[str, Any], _context) -> dict[str, Any]:
         return ok([])
 
     slot_iso_list = [iso(s) for s in slots]
-    locked = dynamo.query_existing_slotlocks(service, slot_iso_list)
+    counts = dynamo.query_slot_counts(service, slot_iso_list)
+
+    def _available(slot_iso: str) -> bool:
+        count = counts.get(slot_iso, 0)
+        if count is None:  # legacy exclusive lock without a count — treat as full
+            return False
+        return count < capacity
 
     payload = [
         {
             "start": slot_iso,
             "label": label_sast(slot),
-            "available": slot_iso not in locked,
+            "available": _available(slot_iso),
         }
         for slot, slot_iso in zip(slots, slot_iso_list)
     ]
     log.info(
-        "event=request_ok service=%s date=%s slots=%d locked=%d",
-        service, date_str, len(payload), len(locked),
+        "event=request_ok service=%s date=%s slots=%d capacity=%d locked=%d",
+        service, date_str, len(payload), capacity, sum(1 for p in payload if not p["available"]),
     )
     return ok(payload)

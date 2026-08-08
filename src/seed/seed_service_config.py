@@ -25,13 +25,27 @@ _DEFAULT_HOURS = {
     "sun": None,
 }
 
+# Yoga runs as fixed classes: Tuesday 17:30–18:30 and Friday 17:00–18:00.
+_YOGA_HOURS = {
+    "mon": None,
+    "tue": {"open": "17:30", "close": "18:30"},
+    "wed": None,
+    "thu": None,
+    "fri": {"open": "17:00", "close": "18:00"},
+    "sat": None,
+    "sun": None,
+}
+
+# concurrentCapacity > 1 lets bookings share a slot (IV chairs, yoga mats).
 _SERVICES = [
-    {"service": "gp-practice",       "durationMinutes": 30, "bufferMinutes": 10, "businessHours": _DEFAULT_HOURS, "maxPerDay": None},
-    {"service": "iv-therapy",        "durationMinutes": 60, "bufferMinutes": 15, "businessHours": _DEFAULT_HOURS, "maxPerDay": None},
-    {"service": "ozone-therapy",     "durationMinutes": 45, "bufferMinutes": 15, "businessHours": _DEFAULT_HOURS, "maxPerDay": None},
-    {"service": "red-light-therapy", "durationMinutes": 30, "bufferMinutes": 10, "businessHours": _DEFAULT_HOURS, "maxPerDay": None},
-    {"service": "weight-loss",       "durationMinutes": 45, "bufferMinutes": 10, "businessHours": _DEFAULT_HOURS, "maxPerDay": None},
-    {"service": "yoga-breathwork",   "durationMinutes": 60, "bufferMinutes": 15, "businessHours": _DEFAULT_HOURS, "maxPerDay": None},
+    {"service": "gp-practice",           "durationMinutes": 30, "bufferMinutes": 10, "businessHours": _DEFAULT_HOURS, "maxPerDay": None, "concurrentCapacity": 1},
+    {"service": "iv-therapy",            "durationMinutes": 60, "bufferMinutes": 0,  "businessHours": _DEFAULT_HOURS, "maxPerDay": None, "concurrentCapacity": 3},
+    {"service": "ozone-therapy",         "durationMinutes": 20, "bufferMinutes": 10, "businessHours": _DEFAULT_HOURS, "maxPerDay": None, "concurrentCapacity": 1},
+    {"service": "red-light-therapy",     "durationMinutes": 20, "bufferMinutes": 10, "businessHours": _DEFAULT_HOURS, "maxPerDay": None, "concurrentCapacity": 1},
+    {"service": "weight-loss",           "durationMinutes": 45, "bufferMinutes": 10, "businessHours": _DEFAULT_HOURS, "maxPerDay": None, "concurrentCapacity": 1},
+    {"service": "yoga-breathwork",       "durationMinutes": 60, "bufferMinutes": 0,  "businessHours": _YOGA_HOURS,    "maxPerDay": None, "concurrentCapacity": 10},
+    {"service": "gut-biome-test",        "durationMinutes": 30, "bufferMinutes": 10, "businessHours": _DEFAULT_HOURS, "maxPerDay": None, "concurrentCapacity": 1},
+    {"service": "functional-blood-test", "durationMinutes": 30, "bufferMinutes": 10, "businessHours": _DEFAULT_HOURS, "maxPerDay": None, "concurrentCapacity": 1},
 ]
 
 

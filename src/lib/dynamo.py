@@ -100,19 +100,42 @@ def query_bookings_for_patient(patient_id: str) -> list[dict[str, Any]]:
 
 # ---------------------------------------------------------------------------
 # Slot lock + booking transactional write
+#
+# Slot locks are capacity counters: `count` bookings held against the slot,
+# admitted while count < the service's concurrentCapacity. Legacy lock items
+# written before `count` existed have no count attribute; the condition below
+# treats them as full, which is the safe reading for capacity-1 services.
 # ---------------------------------------------------------------------------
 
-def write_slotlock_and_booking(slot_lock_item: dict[str, Any], booking_item: dict[str, Any]) -> None:
-    """Write SlotLock + Booking atomically. Raises on conflict."""
+def _slot_acquire_update(service: str, slot_start_iso: str, capacity: int, now_iso: str) -> dict[str, Any]:
+    return {
+        "Update": {
+            "TableName": _TABLE_NAME,
+            "Key": {"PK": {"S": f"SLOTLOCK#{service}#{slot_start_iso}"}, "SK": {"S": "LOCK"}},
+            "UpdateExpression": "SET #t = :type, #u = :now ADD #c :one",
+            "ConditionExpression": "attribute_not_exists(PK) OR #c < :cap",
+            "ExpressionAttributeNames": {"#c": "count", "#t": "type", "#u": "updatedAt"},
+            "ExpressionAttributeValues": {
+                ":one": {"N": "1"},
+                ":cap": {"N": str(capacity)},
+                ":type": {"S": "slot_lock"},
+                ":now": {"S": now_iso},
+            },
+        }
+    }
+
+
+def acquire_slot_and_write_booking(
+    service: str,
+    slot_start_iso: str,
+    capacity: int,
+    booking_item: dict[str, Any],
+    now_iso: str,
+) -> None:
+    """Increment the slot counter (while below capacity) + write Booking atomically."""
     _client.transact_write_items(
         TransactItems=[
-            {
-                "Put": {
-                    "TableName": _TABLE_NAME,
-                    "Item": _to_dynamo(slot_lock_item),
-                    "ConditionExpression": "attribute_not_exists(PK)",
-                }
-            },
+            _slot_acquire_update(service, slot_start_iso, capacity, now_iso),
             {
                 "Put": {
                     "TableName": _TABLE_NAME,
@@ -123,28 +146,109 @@ def write_slotlock_and_booking(slot_lock_item: dict[str, Any], booking_item: dic
     )
 
 
-def delete_slotlock(service: str, slot_start_iso: str) -> None:
-    table.delete_item(
-        Key={"PK": f"SLOTLOCK#{service}#{slot_start_iso}", "SK": "LOCK"}
+def release_slot(service: str, slot_start_iso: str) -> None:
+    """Decrement the slot counter (a cancel/reschedule freeing one seat)."""
+    table.update_item(
+        Key={"PK": f"SLOTLOCK#{service}#{slot_start_iso}", "SK": "LOCK"},
+        UpdateExpression="ADD #c :minus",
+        ExpressionAttributeNames={"#c": "count"},
+        ExpressionAttributeValues={":minus": -1},
     )
 
 
-def query_existing_slotlocks(service: str, slot_starts: Iterable[str]) -> set[str]:
-    """Returns the subset of slot_starts that already have a SlotLock."""
-    locked: set[str] = set()
+def move_slot(service: str, old_slot_iso: str, new_slot_iso: str, capacity: int, now_iso: str) -> None:
+    """Atomically free one seat on the old slot and take one on the new slot."""
+    _client.transact_write_items(
+        TransactItems=[
+            {
+                "Update": {
+                    "TableName": _TABLE_NAME,
+                    "Key": {"PK": {"S": f"SLOTLOCK#{service}#{old_slot_iso}"}, "SK": {"S": "LOCK"}},
+                    "UpdateExpression": "ADD #c :minus",
+                    "ExpressionAttributeNames": {"#c": "count"},
+                    "ExpressionAttributeValues": {":minus": {"N": "-1"}},
+                }
+            },
+            _slot_acquire_update(service, new_slot_iso, capacity, now_iso),
+        ]
+    )
+
+
+def query_slot_counts(service: str, slot_starts: Iterable[str]) -> dict[str, int | None]:
+    """Slot ISO → booked count for slots that have a lock item.
+
+    Legacy lock items without a count attribute map to None (treat as full).
+    Slots with no lock item are absent from the result (count 0).
+    """
+    counts: dict[str, int | None] = {}
     keys = [{"PK": f"SLOTLOCK#{service}#{s}", "SK": "LOCK"} for s in slot_starts]
     for chunk_start in range(0, len(keys), 100):
         chunk = keys[chunk_start:chunk_start + 100]
         if not chunk:
             continue
         resp = _resource.batch_get_item(
-            RequestItems={_TABLE_NAME: {"Keys": chunk, "ProjectionExpression": "PK"}}
+            RequestItems={
+                _TABLE_NAME: {
+                    "Keys": chunk,
+                    "ProjectionExpression": "PK, #c",
+                    "ExpressionAttributeNames": {"#c": "count"},
+                }
+            }
         )
         for item in resp.get("Responses", {}).get(_TABLE_NAME, []):
-            pk = item["PK"]
-            slot = pk.split("#", 2)[-1]
-            locked.add(slot)
-    return locked
+            slot = item["PK"].split("#", 2)[-1]
+            raw = item.get("count")
+            counts[slot] = int(raw) if raw is not None else None
+    return counts
+
+
+# ---------------------------------------------------------------------------
+# Pricing catalog
+# ---------------------------------------------------------------------------
+
+def get_pricing_catalog() -> dict[str, Any] | None:
+    resp = table.get_item(Key={"PK": "CONFIG#PRICING", "SK": "CATALOG"})
+    return resp.get("Item")
+
+
+def put_pricing_catalog(categories: list[dict[str, Any]], updated_at: str, updated_by: str | None = None) -> None:
+    table.put_item(
+        Item={
+            "PK": "CONFIG#PRICING",
+            "SK": "CATALOG",
+            "type": "pricing_catalog",
+            "categories": categories,
+            "updatedAt": updated_at,
+            "updatedBy": updated_by,
+        }
+    )
+
+
+def find_pricing_item(catalog: dict[str, Any] | None, item_id: str) -> tuple[dict[str, Any], dict[str, Any]] | None:
+    """Locate a catalog item by id. Returns (category, item) or None."""
+    for category in (catalog or {}).get("categories", []) or []:
+        for item in category.get("items", []) or []:
+            if item.get("id") == item_id:
+                return category, item
+    return None
+
+
+# ---------------------------------------------------------------------------
+# Patient user accounts (self-service login)
+# ---------------------------------------------------------------------------
+
+def get_patient_user(email: str) -> dict[str, Any] | None:
+    resp = table.get_item(Key={"PK": f"USER#{email.lower()}", "SK": "PROFILE"})
+    return resp.get("Item")
+
+
+def create_patient_user(item: dict[str, Any]) -> None:
+    """Create a patient login; raises ConditionalCheckFailedException if the email is taken."""
+    table.put_item(Item=item, ConditionExpression="attribute_not_exists(PK)")
+
+
+def put_patient_user(item: dict[str, Any]) -> None:
+    table.put_item(Item=item)
 
 
 # ---------------------------------------------------------------------------

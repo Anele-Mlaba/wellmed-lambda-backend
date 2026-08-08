@@ -12,7 +12,7 @@ from ..lib import dynamo
 from ..lib import jwt_util
 from ..lib.http import ok, unauthorized
 from ..lib.log_util import bind
-from ..lib.time_util import age_band_from_id, gender_from_id, now_utc
+from ..lib.time_util import age_band_from_dob, age_band_from_id, gender_from_id, now_utc
 
 _STATUSES = ("pending", "confirmed", "completed", "noshow", "cancelled")
 _AGE_BANDS = ("0-17", "18-24", "25-34", "35-44", "45-54", "55+")
@@ -83,7 +83,7 @@ def handler(event: dict[str, Any], _context) -> dict[str, Any]:
             patient_cache[pid] = dynamo.get_patient_by_id(pid) or {}
         patient = patient_cache.get(pid, {})
         id_or_passport = patient.get("idOrPassport", "")
-        band = age_band_from_id(id_or_passport)
+        band = b.get("ageBand") or age_band_from_dob(patient.get("dob")) or age_band_from_id(id_or_passport)
         if band:
             age_bands[band] = age_bands.get(band, 0) + 1
         g = gender_from_id(id_or_passport) or "Other"
