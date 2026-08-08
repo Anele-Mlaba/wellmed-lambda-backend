@@ -2,7 +2,7 @@
 
 Usage:
     TABLE_NAME=WellMed-prod AWS_REGION=eu-west-1 \
-    ADMIN_EMAIL=doctor@wellmed.co.za ADMIN_PASSWORD='change-me' ADMIN_ROLE=doctor \
+    ADMIN_EMAIL=doctor@wellmed.org.za ADMIN_PASSWORD='change-me' ADMIN_ROLE=doctor \
     python -m src.seed.seed_admin_user
 """
 
@@ -21,7 +21,7 @@ from src.lib.time_util import now_iso  # noqa: E402
 
 
 def main() -> None:
-    email = os.environ.get("ADMIN_EMAIL", "doctor@wellmed.co.za").lower()
+    email = os.environ.get("ADMIN_EMAIL", "doctor@wellmed.org.za").lower()
     password = os.environ.get("ADMIN_PASSWORD")
     role = os.environ.get("ADMIN_ROLE", "doctor")
     if not password:

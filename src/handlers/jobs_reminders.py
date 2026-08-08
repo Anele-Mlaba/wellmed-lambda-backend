@@ -52,7 +52,7 @@ def handler(_event: dict[str, Any], _context) -> dict[str, Any]:
                 "shortId": booking.get("shortId", ""),
                 "serviceTitle": SERVICE_TITLES.get(booking.get("service", ""), booking.get("service", "")),
                 "slotLocal": format_sast(slot_dt),
-                "rescheduleUrl": "https://wellmed.co.za/pages/contact.html",
+                "rescheduleUrl": "https://wellmed.org.za/pages/contact.html",
             }
 
             if ses.send_booking_reminder(email, data):

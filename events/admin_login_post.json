@@ -6,6 +6,6 @@
   "requestContext": {
     "http": { "method": "POST", "path": "/api/admin/login", "sourceIp": "127.0.0.1" }
   },
-  "body": "{\"email\":\"doctor@wellmed.co.za\",\"password\":\"change-me\"}",
+  "body": "{\"email\":\"doctor@wellmed.org.za\",\"password\":\"change-me\"}",
   "isBase64Encoded": false
 }

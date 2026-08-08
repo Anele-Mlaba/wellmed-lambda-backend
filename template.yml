@@ -19,7 +19,7 @@ Globals:
       Variables:
         STAGE: !Ref Stage
         TABLE_NAME: !Sub "WellMed-${Stage}"
-        FRONT_END_ORIGIN: "https://wellmed.co.za"
+        FRONT_END_ORIGIN: "https://wellmed.org.za"
         PRACTICE_CALENDAR_ID: "5ebba941a8dfdefc5e5b571998a128f0cd836dff3403e4704c5edf902c036dc4@group.calendar.google.com"
         GOOGLE_SA_PATH: "/var/task/src/config/google-sa.json"
         JWT_SECRET: "replace-me-with-a-long-random-string"

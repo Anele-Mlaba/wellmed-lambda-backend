@@ -4,7 +4,9 @@
       "Bash(python -c 'import ast, pathlib, sys *)",
       "Bash(py -c 'import ast, pathlib *)",
       "Bash(py -m pip install --quiet pyyaml)",
-      "Bash(py -c ' *)"
+      "Bash(py -c ' *)",
+      "Bash(python -c \"from src.lib.passwords import hash_password; print\\(hash_password\\('wellmed123'\\)\\)\")",
+      "Bash(cd *)"
     ]
   }
 }

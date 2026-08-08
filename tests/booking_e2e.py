@@ -2,7 +2,7 @@
 
 Usage:
     API_URL=https://abc.execute-api.eu-west-1.amazonaws.com \
-    ADMIN_EMAIL=doctor@wellmed.co.za ADMIN_PASSWORD='change-me' \
+    ADMIN_EMAIL=doctor@wellmed.org.za ADMIN_PASSWORD='change-me' \
     python tests/booking_e2e.py
 
 Verifies the happy path:

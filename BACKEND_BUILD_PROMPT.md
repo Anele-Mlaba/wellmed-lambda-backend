@@ -198,7 +198,7 @@ When `newSlot` is provided: `events.patch` on the Google Calendar event with the
 **One-off setup (document in README):**
 1. GCP project → enable Google Calendar API → create service account → download JSON.
 2. Drop the JSON at `backend/src/config/google-sa.json` so it ships inside every Lambda's deployment package. (Add `src/config/google-sa.json` to `.gitignore` and commit a `google-sa.example.json` instead.)
-3. Create the practice calendar (e.g., `bookings@wellmed.co.za`).
+3. Create the practice calendar (e.g., `bookings@wellmed.org.za`).
 4. Share that calendar with the service account email, granting **Make changes to events**.
 5. Hardcode the calendar ID into the `PRACTICE_CALENDAR_ID` environment variable in `template.yaml`.
 
@@ -243,7 +243,7 @@ Two templates, stored as SES email templates (`SES.CreateTemplate` in the SAM st
 - **`booking_confirmation`** — sent immediately after `POST /api/bookings` succeeds. Contains booking shortId, slot in SAST, doctor name, address, "add to calendar" link (mirrors Google's invite), reschedule URL.
 - **`booking_reminder`** — sent ~24h before slot.
 
-From address: `bookings@wellmed.co.za` (verified domain in SES).
+From address: `bookings@wellmed.org.za` (verified domain in SES).
 
 ---
 
@@ -483,12 +483,12 @@ No Secrets Manager, no stack parameters for env. Put these directly in `template
 
 | Env var                | Example                              | Purpose                                |
 | ---------------------- | ------------------------------------ | -------------------------------------- |
-| `FRONT_END_ORIGIN`     | `https://wellmed.co.za`              | CORS allow-list                         |
-| `PRACTICE_CALENDAR_ID` | `bookings@wellmed.co.za`             | Google calendar to write into           |
+| `FRONT_END_ORIGIN`     | `https://wellmed.org.za`              | CORS allow-list                         |
+| `PRACTICE_CALENDAR_ID` | `bookings@wellmed.org.za`             | Google calendar to write into           |
 | `GOOGLE_SA_PATH`       | `/var/task/src/config/google-sa.json` | Where the bundled SA file lives in the Lambda runtime |
 | `JWT_SECRET`           | `replace-me-with-a-long-random-string` | HS256 secret for admin tokens           |
 | `JWT_EXPIRY_SECONDS`   | `3600`                               | Admin token TTL                         |
-| `SES_FROM_ADDRESS`     | `bookings@wellmed.co.za`             | Verified SES sender                     |
+| `SES_FROM_ADDRESS`     | `bookings@wellmed.org.za`             | Verified SES sender                     |
 | `STAGE`                | `prod`                               | Suffix on table names                   |
 
 The Google service-account JSON itself is bundled as a file (see §5 step 2), not a secret reference.

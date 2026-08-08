@@ -24,7 +24,7 @@ backend/
 - AWS SAM CLI ≥ 1.110
 - Python 3.12
 - A Google Cloud project with the Calendar API enabled
-- A verified SES domain identity for `wellmed.co.za` (or the address you set in `SES_FROM_ADDRESS`)
+- A verified SES domain identity for `wellmed.org.za` (or the address you set in `SES_FROM_ADDRESS`)
 
 ## One-off setup
 
@@ -33,12 +33,12 @@ backend/
 1. In the GCP console, create a service account in the project that owns the practice calendar.
 2. Enable the **Google Calendar API**.
 3. Download the JSON key and save it as `src/config/google-sa.json`. The file is gitignored — commit `google-sa.example.json` only.
-4. In Google Calendar, share the practice calendar (e.g. `bookings@wellmed.co.za`) with the service account's email and grant **Make changes to events**.
+4. In Google Calendar, share the practice calendar (e.g. `bookings@wellmed.org.za`) with the service account's email and grant **Make changes to events**.
 5. Set `PRACTICE_CALENDAR_ID` in `template.yaml` (`Globals.Function.Environment.Variables`) to the calendar ID.
 
 ### 2. SES
 
-1. Verify the sending domain in SES (`wellmed.co.za`).
+1. Verify the sending domain in SES (`wellmed.org.za`).
 2. Move the account out of SES sandbox (or verify each recipient address while still sandboxed).
 3. `template.yaml` provisions the `booking_confirmation` and `booking_reminder` templates automatically.
 
@@ -74,7 +74,7 @@ $env:AWS_REGION = "eu-west-1"
 
 python -m src.seed.seed_service_config
 
-$env:ADMIN_EMAIL = "doctor@wellmed.co.za"
+$env:ADMIN_EMAIL = "doctor@wellmed.org.za"
 $env:ADMIN_PASSWORD = "use-a-strong-password"
 $env:ADMIN_ROLE = "doctor"
 python -m src.seed.seed_admin_user
@@ -106,7 +106,7 @@ After `sam deploy`, run the smoke test against the deployed stack:
 
 ```powershell
 $env:API_URL = "https://<api-id>.execute-api.eu-west-1.amazonaws.com"
-$env:ADMIN_EMAIL = "doctor@wellmed.co.za"
+$env:ADMIN_EMAIL = "doctor@wellmed.org.za"
 $env:ADMIN_PASSWORD = "use-a-strong-password"
 python tests/booking_e2e.py
 ```

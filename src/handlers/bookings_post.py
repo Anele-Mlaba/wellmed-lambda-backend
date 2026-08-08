@@ -265,7 +265,7 @@ def handler(event: dict[str, Any], _context) -> dict[str, Any]:
             "serviceTitle": service_title,
             "slotLocal": format_sast(slot_start_utc),
             "calendarLink": f"https://www.google.com/calendar/event?eid={google_event_id}",
-            "rescheduleUrl": "https://wellmed.co.za/pages/contact.html",
+            "rescheduleUrl": "https://wellmed.org.za/pages/contact.html",
         },
     )
     if not confirmation_sent:
